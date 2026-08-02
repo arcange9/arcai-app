@@ -1,0 +1,8 @@
+{
+  "name": "ArcAI Assistant",
+  "description": "Your Personal AI Powered By Your Own API Key. Connect and verify your own API keys for OpenAI, Gemini, Claude, DeepSeek, Groq, Mistral, OpenRouter, and 15+ more AI providers.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
