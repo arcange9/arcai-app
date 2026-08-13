@@ -181,18 +181,20 @@ fun ApiKeyManagerScreen(
         ) {
             items(filteredProviders, key = { it.id }) { provider ->
                 val keyInfo = allProviderKeys[provider.id]
-                val hasKey = !keyInfo?.apiKey.isNullOrBlank()
+                val apiKey = keyInfo?.apiKey ?: ""
                 val isDefault = selectedProvider == provider
                 val status = keyInfo?.status ?: KeyStatus.UNTESTED
 
                 ProviderCard(
                     provider = provider,
-                    hasKey = hasKey,
+                    apiKey = apiKey,
                     isDefault = isDefault,
                     status = status,
                     selectedModel = keyInfo?.selectedModel ?: provider.defaultModel,
-                    onManageClick = { editingProvider = provider },
-                    onSetDefault = { onSetDefaultProvider(provider) }
+                    onVerifyAndSaveKey = { newKey -> onVerifyAndSaveKey(provider, newKey) },
+                    onRemoveKey = { onRemoveKey(provider) },
+                    onSetDefault = { onSetDefaultProvider(provider) },
+                    onOpenDialog = { editingProvider = provider }
                 )
             }
         }
@@ -308,29 +310,36 @@ fun ApiKeyManagerScreen(
 @Composable
 fun ProviderCard(
     provider: AiProvider,
-    hasKey: Boolean,
+    apiKey: String,
     isDefault: Boolean,
     status: KeyStatus,
     selectedModel: String,
-    onManageClick: () -> Unit,
-    onSetDefault: () -> Unit
+    onVerifyAndSaveKey: (String) -> Unit,
+    onRemoveKey: () -> Unit,
+    onSetDefault: () -> Unit,
+    onOpenDialog: () -> Unit
 ) {
+    var isExpanded by remember { mutableStateOf(false) }
+    var keyInputText by remember(apiKey) { mutableStateOf(apiKey) }
+    var isPasswordVisible by remember { mutableStateOf(false) }
+    var isVerifying by remember { mutableStateOf(false) }
+
+    val hasKey = apiKey.isNotBlank()
     val borderColor = when {
         isDefault -> MaterialTheme.colorScheme.primary
         hasKey && status == KeyStatus.VERIFIED -> OpenAiGreen
         hasKey && status == KeyStatus.INVALID -> Color.Red
-        else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+        else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
     }
 
     Card(
         modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onManageClick() },
+            .fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (isDefault) 4.dp else 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isDefault) 4.dp else 1.dp)
     ) {
         Column(
             modifier = Modifier
@@ -342,12 +351,18 @@ fun ProviderCard(
                 )
                 .padding(16.dp)
         ) {
+            // Header Row (Clickable to toggle expansion)
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { isExpanded = !isExpanded },
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     // Category Circle Icon
                     Box(
                         modifier = Modifier
@@ -401,7 +416,7 @@ fun ProviderCard(
                                     shape = RoundedCornerShape(8.dp)
                                 ) {
                                     Text(
-                                        text = "ACTIVE DEFAULT",
+                                        text = "ACTIVE",
                                         color = MaterialTheme.colorScheme.primary,
                                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
@@ -414,94 +429,134 @@ fun ProviderCard(
                             text = provider.description,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2,
+                            maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
 
-                // Status Icon
-                when {
-                    !hasKey -> {
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text(
-                                "No Key",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.labelMedium,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
-                        }
-                    }
-                    status == KeyStatus.VERIFIED -> {
-                        Surface(
-                            color = OpenAiGreen.copy(alpha = 0.15f),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                Spacer(modifier = Modifier.width(8.dp))
+
+                // Verification Status Badge
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    when {
+                        isVerifying -> {
+                            Surface(
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                                shape = RoundedCornerShape(8.dp)
                             ) {
-                                Icon(
-                                    Icons.Default.CheckCircle,
-                                    contentDescription = "Verified",
-                                    tint = OpenAiGreen,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(Modifier.width(4.dp))
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(12.dp),
+                                        strokeWidth = 2.dp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(
+                                        "Testing...",
+                                        color = MaterialTheme.colorScheme.primary,
+                                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                                    )
+                                }
+                            }
+                        }
+                        !hasKey -> {
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
                                 Text(
-                                    "Verified",
-                                    color = OpenAiGreen,
-                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                                    "No Key",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                        status == KeyStatus.VERIFIED -> {
+                            Surface(
+                                color = OpenAiGreen.copy(alpha = 0.15f),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.CheckCircle,
+                                        contentDescription = "Verified",
+                                        tint = OpenAiGreen,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(
+                                        "Verified",
+                                        color = OpenAiGreen,
+                                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                                    )
+                                }
+                            }
+                        }
+                        status == KeyStatus.INVALID -> {
+                            Surface(
+                                color = Color.Red.copy(alpha = 0.15f),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.ErrorOutline,
+                                        contentDescription = "Invalid",
+                                        tint = Color.Red,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(
+                                        "Invalid",
+                                        color = Color.Red,
+                                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                                    )
+                                }
+                            }
+                        }
+                        else -> {
+                            Surface(
+                                color = MistralYellow.copy(alpha = 0.15f),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text(
+                                    "Untested",
+                                    color = MistralYellow,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                                 )
                             }
                         }
                     }
-                    status == KeyStatus.INVALID -> {
-                        Surface(
-                            color = Color.Red.copy(alpha = 0.15f),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.ErrorOutline,
-                                    contentDescription = "Invalid",
-                                    tint = Color.Red,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(Modifier.width(4.dp))
-                                Text(
-                                    "Invalid",
-                                    color = Color.Red,
-                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
-                                )
-                            }
-                        }
-                    }
-                    else -> {
-                        Surface(
-                            color = MistralYellow.copy(alpha = 0.15f),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text(
-                                "Unchecked",
-                                color = MistralYellow,
-                                style = MaterialTheme.typography.labelMedium,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
-                        }
+
+                    Spacer(modifier = Modifier.width(4.dp))
+
+                    IconButton(
+                        onClick = { isExpanded = !isExpanded },
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = if (isExpanded) "Collapse" else "Expand",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
-            // Footer Row
+            // Subtitle / Default Model Info Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -513,21 +568,141 @@ fun ProviderCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (hasKey && !isDefault) {
-                        TextButton(
-                            onClick = onSetDefault,
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                if (hasKey && !isDefault) {
+                    TextButton(
+                        onClick = onSetDefault,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Text("Set Active Default", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            // Expanded Key Management Section
+            AnimatedVisibility(visible = isExpanded) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp)
+                ) {
+                    Divider(color = MaterialTheme.colorScheme.outlineVariant)
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text(
+                        text = if (provider.isLocal) "Configure Server Endpoint URL" else "API Key Configuration",
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    // Text Field for API Key
+                    OutlinedTextField(
+                        value = keyInputText,
+                        onValueChange = { keyInputText = it },
+                        label = { Text(if (provider.isLocal) "Ollama Endpoint URL" else "API Key") },
+                        placeholder = { Text(provider.keyPlaceholder) },
+                        singleLine = true,
+                        visualTransformation = if (isPasswordVisible || provider.isLocal) VisualTransformation.None else PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = if (provider.isLocal) KeyboardType.Uri else KeyboardType.Password),
+                        trailingIcon = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (keyInputText.isNotEmpty()) {
+                                    IconButton(onClick = { keyInputText = "" }) {
+                                        Icon(Icons.Default.Clear, contentDescription = "Clear key input")
+                                    }
+                                }
+                                if (!provider.isLocal) {
+                                    IconButton(onClick = { isPasswordVisible = !isPasswordVisible }) {
+                                        Icon(
+                                            imageVector = if (isPasswordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                            contentDescription = "Toggle key visibility"
+                                        )
+                                    }
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Status Indicator Banner
+                    Surface(
+                        color = when {
+                            status == KeyStatus.VERIFIED -> OpenAiGreen.copy(alpha = 0.12f)
+                            status == KeyStatus.INVALID -> Color.Red.copy(alpha = 0.12f)
+                            else -> MaterialTheme.colorScheme.surfaceVariant
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                         ) {
-                            Text("Set as Default", fontSize = 12.sp)
+                            Icon(
+                                imageVector = when {
+                                    status == KeyStatus.VERIFIED -> Icons.Default.CheckCircle
+                                    status == KeyStatus.INVALID -> Icons.Default.ErrorOutline
+                                    else -> Icons.Default.Info
+                                },
+                                contentDescription = null,
+                                tint = when {
+                                    status == KeyStatus.VERIFIED -> OpenAiGreen
+                                    status == KeyStatus.INVALID -> Color.Red
+                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = when {
+                                    status == KeyStatus.VERIFIED -> "Verification Successful: API endpoints verified and operational."
+                                    status == KeyStatus.INVALID -> "Verification Failed: Check API key validity or credit balance."
+                                    hasKey -> "Key stored locally. Click 'Verify & Save' to test API endpoints."
+                                    else -> "No API key configured. Enter key above and click 'Verify & Save'."
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
                         }
                     }
-                    Button(
-                        onClick = onManageClick,
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Action Buttons Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(if (hasKey) "Configure & Test" else "Add Key", fontSize = 12.sp)
+                        if (hasKey) {
+                            TextButton(
+                                onClick = onRemoveKey,
+                                colors = ButtonDefaults.textButtonColors(contentColor = Color.Red)
+                            ) {
+                                Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Remove", fontSize = 12.sp)
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                        }
+
+                        Button(
+                            onClick = {
+                                isVerifying = true
+                                onVerifyAndSaveKey(keyInputText)
+                                isVerifying = false
+                            },
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+                        ) {
+                            Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(if (hasKey) "Verify & Save" else "Save & Test", fontSize = 12.sp)
+                        }
                     }
                 }
             }
