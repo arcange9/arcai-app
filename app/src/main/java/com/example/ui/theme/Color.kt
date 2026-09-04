@@ -2,29 +2,31 @@ package com.example.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Enterprise Dark & Light Colors
-val ArcPrimary = Color(0xFF00D2FF)
-val ArcPrimaryDark = Color(0xFF00A2C7)
-val ArcSecondary = Color(0xFF7C4DFF)
-val ArcTertiary = Color(0xFF00E676)
-val ArcAccentOrange = Color(0xFFFF6E40)
-val ArcAccentPink = Color(0xFFFF4081)
+// ArcAI brand palette — premium blue / cyan / indigo / violet
+val ArcPrimary = Color(0xFF38BDF8)
+val ArcPrimaryDark = Color(0xFF0284C7)
+val ArcSecondary = Color(0xFF8B5CF6)
+val ArcTertiary = Color(0xFF22D3EE)
+val ArcIndigo = Color(0xFF6366F1)
+val ArcViolet = Color(0xFFA855F7)
+val ArcMagenta = Color(0xFFEC4899)
+val ArcTeal = Color(0xFF14B8A6)
 
-val ObsidianBackground = Color(0xFF0B0F19)
-val ObsidianSurface = Color(0xFF131A2A)
-val ObsidianSurfaceElevated = Color(0xFF1C253B)
-val GlassDark = Color(0x331C253B)
-val GlassLight = Color(0x88FFFFFF)
+val ObsidianBackground = Color(0xFF070B14)
+val ObsidianSurface = Color(0xFF0E1626)
+val ObsidianSurfaceElevated = Color(0xFF162238)
+val GlassDark = Color(0x40162238)
+val GlassLight = Color(0x99FFFFFF)
 
-val LightBackground = Color(0xFFF7F9FC)
+val LightBackground = Color(0xFFF6F8FC)
 val LightSurface = Color(0xFFFFFFFF)
-val LightSurfaceElevated = Color(0xFFEDF2F9)
+val LightSurfaceElevated = Color(0xFFEFF4FB)
 
-// Provider brand indicator colors
+// Provider indicators
 val OpenAiGreen = Color(0xFF10A37F)
 val AnthropicOrange = Color(0xFFD97757)
 val GeminiBlue = Color(0xFF4285F4)
-val DeepSeekCyan = Color(0xFF00BCD4)
-val GrokPurple = Color(0xFF8E24AA)
-val MistralYellow = Color(0xFFFFB300)
-val OpenRouterIndigo = Color(0xFF5C6BC0)
+val DeepSeekCyan = Color(0xFF06B6D4)
+val GrokPurple = Color(0xFF8B5CF6)
+val MistralYellow = Color(0xFFF59E0B)
+val OpenRouterIndigo = Color(0xFF6366F1)
