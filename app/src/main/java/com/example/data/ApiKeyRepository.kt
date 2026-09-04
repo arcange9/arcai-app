@@ -89,6 +89,18 @@ class ApiKeyRepository(private val context: Context) {
         }
     }
 
+    suspend fun migrateLegacyPlaintextKeys() {
+        context.apiKeysDataStore.edit { prefs ->
+            for (provider in AiProvider.entries) {
+                val keyPreference = keyForProvider(provider.id)
+                val stored = prefs[keyPreference]
+                if (!stored.isNullOrBlank() && !stored.startsWith("enc:v1:")) {
+                    prefs[keyPreference] = ApiKeyCipher.encrypt(stored.trim())
+                }
+            }
+        }
+    }
+
     suspend fun saveSelectedModel(provider: AiProvider, modelId: String) {
         context.apiKeysDataStore.edit { prefs ->
             prefs[modelKeyForProvider(provider.id)] = modelId
