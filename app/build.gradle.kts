@@ -14,7 +14,7 @@ android {
   compileSdk { version = release(37) }
 
   defaultConfig {
-    applicationId = "com.example"
+    applicationId = "com.arcange.arcai"
     minSdk = 24
     targetSdk = 37
     versionCode = 2
