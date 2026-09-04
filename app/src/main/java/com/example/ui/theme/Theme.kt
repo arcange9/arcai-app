@@ -2,10 +2,12 @@ package com.example.ui.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 
 private val ArcAiTypography = Typography()
 
@@ -62,9 +64,9 @@ fun ArcAiTheme(
         colorScheme = colorScheme,
         typography = ArcAiTypography,
         shapes = Shapes(
-            small = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
-            medium = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
-            large = androidx.compose.foundation.shape.RoundedCornerShape(24.dp)
+            small = RoundedCornerShape(12.dp),
+            medium = RoundedCornerShape(18.dp),
+            large = RoundedCornerShape(24.dp)
         ),
         content = content
     )
