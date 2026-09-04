@@ -7,20 +7,23 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
+private val ArcAiTypography = Typography()
+
 private val DarkColorScheme = darkColorScheme(
     primary = ArcPrimary,
-    onPrimary = Color.Black,
+    onPrimary = Color(0xFF001018),
     secondary = ArcSecondary,
     onSecondary = Color.White,
     tertiary = ArcTertiary,
-    onTertiary = Color.Black,
+    onTertiary = Color(0xFF001014),
     background = ObsidianBackground,
-    onBackground = Color.White,
+    onBackground = Color(0xFFF8FAFC),
     surface = ObsidianSurface,
-    onSurface = Color.White,
+    onSurface = Color(0xFFF8FAFC),
     surfaceVariant = ObsidianSurfaceElevated,
-    onSurfaceVariant = Color(0xFFC4CDE0),
-    outline = Color(0xFF2C3954)
+    onSurfaceVariant = Color(0xFFB8C5D9),
+    outline = Color(0xFF33445F),
+    outlineVariant = Color(0xFF22314A)
 )
 
 private val LightColorScheme = lightColorScheme(
@@ -28,21 +31,22 @@ private val LightColorScheme = lightColorScheme(
     onPrimary = Color.White,
     secondary = ArcSecondary,
     onSecondary = Color.White,
-    tertiary = ArcTertiary,
-    onTertiary = Color.Black,
+    tertiary = ArcIndigo,
+    onTertiary = Color.White,
     background = LightBackground,
-    onBackground = Color(0xFF111827),
+    onBackground = Color(0xFF101828),
     surface = LightSurface,
-    onSurface = Color(0xFF111827),
+    onSurface = Color(0xFF101828),
     surfaceVariant = LightSurfaceElevated,
     onSurfaceVariant = Color(0xFF475569),
-    outline = Color(0xFFCBD5E1)
+    outline = Color(0xFFCBD5E1),
+    outlineVariant = Color(0xFFE2E8F0)
 )
 
 @Composable
 fun ArcAiTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = false, // Keep false by default for ArcAI custom brand colors
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val colorScheme = when {
@@ -56,7 +60,12 @@ fun ArcAiTheme(
 
     MaterialTheme(
         colorScheme = colorScheme,
-        typography = Typography,
+        typography = ArcAiTypography,
+        shapes = Shapes(
+            small = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+            medium = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
+            large = androidx.compose.foundation.shape.RoundedCornerShape(24.dp)
+        ),
         content = content
     )
 }
