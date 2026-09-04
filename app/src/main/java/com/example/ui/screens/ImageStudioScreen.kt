@@ -1,28 +1,21 @@
 package com.example.ui.screens
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.data.entity.ImageHistoryEntity
 import com.example.model.AiProvider
-import com.example.ui.theme.*
 
 @Composable
 fun ImageStudioScreen(
@@ -34,207 +27,53 @@ fun ImageStudioScreen(
     onOpenApiKeys: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var promptInput by remember { mutableStateOf("") }
-    var selectedImageProvider by remember { mutableStateOf(AiProvider.STABILITY_AI) }
-    var selectedImageModel by remember { mutableStateOf(AiProvider.STABILITY_AI.defaultModel) }
+    var prompt by remember { mutableStateOf("") }
+    var size by remember { mutableStateOf("1024x1024") }
 
-    val imageProviders = listOf(AiProvider.STABILITY_AI, AiProvider.MIDJOURNEY, AiProvider.REPLICATE, AiProvider.RUNWAY)
-
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-    ) {
-        // Header
-        Surface(
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 4.dp
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text(
-                            text = "AI Image Studio & Prompt Enhancer",
-                            style = MaterialTheme.typography.titleLarge.copy(
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        )
-                        Text(
-                            text = "Stability AI (SD 3.5) • Midjourney v6.1 • Replicate FLUX.1 • Runway Gen-3",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+    LazyColumn(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Column(Modifier.weight(1f)) {
+                    Text("Image Studio", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Text("Generate real images through a configured provider.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                OutlinedButton(onClick = onOpenApiKeys) { Icon(Icons.Default.VpnKey, null); Spacer(Modifier.width(6.dp)); Text("Keys") }
+            }
+        }
+        item {
+            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp)) {
+                Column(Modifier.padding(20.dp)) {
+                    Text("Create image", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(prompt, { prompt = it }, Modifier.fillMaxWidth(), minLines = 5, label = { Text("Prompt") }, placeholder = { Text("Describe exactly what you want ArcAI to create…") }, shape = RoundedCornerShape(18.dp))
+                    Spacer(Modifier.height(12.dp))
+                    Text("Provider: OpenAI • Model: ${AiProvider.OPENAI.defaultModel}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("1024x1024", "1024x1536", "1536x1024").forEach { option ->
+                            FilterChip(selected = size == option, onClick = { size = option }, label = { Text(option) })
+                        }
                     }
-
-                    OutlinedButton(
-                        onClick = onOpenApiKeys,
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                    ) {
-                        Icon(Icons.Default.VpnKey, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("API Keys")
+                    Spacer(Modifier.height(14.dp))
+                    Button(onClick = { onGenerateImage(prompt.trim(), AiProvider.OPENAI, AiProvider.OPENAI.defaultModel); prompt = "" }, enabled = prompt.isNotBlank() && !isGenerating, Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+                        if (isGenerating) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Icon(Icons.Default.AutoAwesome, null)
+                        Spacer(Modifier.width(8.dp)); Text(if (isGenerating) "Generating…" else "Generate Image")
                     }
                 }
             }
         }
-
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            item {
-                Card(
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp)
-                    ) {
-                        Text(
-                            text = "Generate or Enhance Image Prompt",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                        )
-                        Spacer(Modifier.height(10.dp))
-
-                        // Provider Pills
-                        Text("Image Provider:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(Modifier.height(4.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            imageProviders.forEach { p ->
-                                FilterChip(
-                                    selected = selectedImageProvider == p,
-                                    onClick = {
-                                        selectedImageProvider = p
-                                        selectedImageModel = p.defaultModel
-                                    },
-                                    label = { Text(p.displayName, fontSize = 11.sp) }
-                                )
-                            }
-                        }
-
-                        Spacer(Modifier.height(10.dp))
-
-                        OutlinedTextField(
-                            value = promptInput,
-                            onValueChange = { promptInput = it },
-                            label = { Text("Image Prompt / Idea") },
-                            placeholder = { Text("e.g. Cyberpunk city at twilight with neon rain and futuristic cars...") },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(120.dp),
-                            shape = RoundedCornerShape(12.dp)
-                        )
-
-                        Spacer(Modifier.height(14.dp))
-
-                        val canGen = promptInput.isNotBlank() && !isGenerating
-                        Button(
-                            onClick = {
-                                if (canGen) {
-                                    onGenerateImage(
-                                        promptInput.trim(),
-                                        selectedImageProvider,
-                                        selectedImageModel
-                                    )
-                                    promptInput = ""
-                                }
-                            },
-                            enabled = canGen,
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            if (isGenerating) {
-                                CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
-                                Spacer(Modifier.width(8.dp))
-                                Text("Enhancing & Generating Image...")
-                            } else {
-                                Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Text("Enhance Prompt & Generate (${selectedImageProvider.displayName})")
-                            }
-                        }
+        item { Text("History", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
+        if (imageHistory.isEmpty()) item { Text("No generated images yet.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        items(imageHistory, key = { it.id }) { item ->
+            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
+                Column(Modifier.padding(12.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("${item.providerId} • ${item.modelId}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                        IconButton(onClick = { onDeleteHistoryItem(item) }) { Icon(Icons.Default.DeleteOutline, "Delete") }
                     }
-                }
-            }
-
-            item {
-                Text(
-                    text = "Generated Image History (${imageHistory.size})",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                )
-            }
-
-            if (imageHistory.isEmpty()) {
-                item {
-                    Text(
-                        text = "No image generation history yet. Enter a prompt above to get started!",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            } else {
-                items(imageHistory, key = { it.id }) { item ->
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Surface(
-                                    color = AnthropicOrange.copy(alpha = 0.15f),
-                                    shape = RoundedCornerShape(6.dp)
-                                ) {
-                                    Text(
-                                        text = "${item.providerId.uppercase()} • ${item.modelId}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = AnthropicOrange,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                    )
-                                }
-
-                                IconButton(onClick = { onDeleteHistoryItem(item) }) {
-                                    Icon(Icons.Default.DeleteOutline, contentDescription = "Delete", tint = Color.Red.copy(alpha = 0.7f))
-                                }
-                            }
-
-                            Spacer(Modifier.height(10.dp))
-
-                            Text(
-                                text = item.prompt,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold
-                            )
-
-                            Spacer(Modifier.height(12.dp))
-
-                            AsyncImage(
-                                model = item.imageUrlOrBase64,
-                                contentDescription = item.prompt,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(200.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                            )
-                        }
-                    }
+                    Text(item.prompt, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(10.dp))
+                    AsyncImage(model = item.imageUrlOrBase64, contentDescription = item.prompt, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxWidth().height(260.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp)))
                 }
             }
         }
