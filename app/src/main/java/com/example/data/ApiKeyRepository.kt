@@ -132,7 +132,8 @@ class ApiKeyRepository(private val context: Context) {
     }
 
     /**
-     * Imports metadata only. API keys must be entered again on the destination install.
+     * Imports both the current metadata format and the old plaintext-key format.
+     * Any imported plaintext key is immediately encrypted with Android Keystore.
      */
     suspend fun importKeysFromJson(jsonString: String): Int {
         var importedCount = 0
@@ -142,13 +143,20 @@ class ApiKeyRepository(private val context: Context) {
                 for (i in 0 until jsonArray.length()) {
                     val obj = jsonArray.getJSONObject(i)
                     val pId = obj.optString("providerId", "")
-                    if (pId.isNotEmpty() && obj.optBoolean("hasApiKey", false)) {
-                        val status = obj.optString("status", KeyStatus.UNTESTED.name)
-                        prefs[statusKeyForProvider(pId)] = status
-                        val model = obj.optString("selectedModel", "")
-                        if (model.isNotEmpty()) prefs[modelKeyForProvider(pId)] = model
-                        importedCount++
+                    if (pId.isEmpty()) continue
+
+                    val legacyApiKey = obj.optString("apiKey", "").trim()
+                    if (legacyApiKey.isNotEmpty()) {
+                        prefs[keyForProvider(pId)] = ApiKeyCipher.encrypt(legacyApiKey)
+                    } else if (!obj.optBoolean("hasApiKey", false)) {
+                        continue
                     }
+
+                    val status = obj.optString("status", KeyStatus.UNTESTED.name)
+                    prefs[statusKeyForProvider(pId)] = status
+                    val model = obj.optString("selectedModel", "")
+                    if (model.isNotEmpty()) prefs[modelKeyForProvider(pId)] = model
+                    importedCount++
                 }
             }
         } catch (e: Exception) {
