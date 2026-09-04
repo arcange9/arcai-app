@@ -5,6 +5,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.model.AiProvider
+import com.example.security.ApiKeyCipher
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -41,17 +42,22 @@ class ApiKeyRepository(private val context: Context) {
     private fun statusKeyForProvider(providerId: String) = stringPreferencesKey("$STATUS_PREFIX$providerId")
     private fun verifiedTimeKeyForProvider(providerId: String) = longPreferencesKey("$LAST_VERIFIED_PREFIX$providerId")
 
+    private fun decodeStoredKey(value: String?): String {
+        if (value.isNullOrBlank()) return ""
+        return ApiKeyCipher.decrypt(value)
+    }
+
     val defaultProviderFlow: Flow<AiProvider> = context.apiKeysDataStore.data.map { prefs ->
         val providerId = prefs[DEFAULT_PROVIDER_KEY] ?: AiProvider.OPENAI.id
         AiProvider.fromId(providerId)
     }
 
     fun getKeyFlow(providerId: String): Flow<String?> = context.apiKeysDataStore.data.map { prefs ->
-        prefs[keyForProvider(providerId)]
+        prefs[keyForProvider(providerId)]?.let(::decodeStoredKey)?.ifBlank { null }
     }
 
     fun getKeyInfoFlow(provider: AiProvider): Flow<StoredKeyInfo> = context.apiKeysDataStore.data.map { prefs ->
-        val key = prefs[keyForProvider(provider.id)] ?: ""
+        val key = decodeStoredKey(prefs[keyForProvider(provider.id)])
         val model = prefs[modelKeyForProvider(provider.id)] ?: provider.defaultModel
         val statusStr = prefs[statusKeyForProvider(provider.id)] ?: KeyStatus.UNTESTED.name
         val time = prefs[verifiedTimeKeyForProvider(provider.id)] ?: 0L
@@ -76,7 +82,7 @@ class ApiKeyRepository(private val context: Context) {
                 prefs.remove(statusKeyForProvider(provider.id))
                 prefs.remove(verifiedTimeKeyForProvider(provider.id))
             } else {
-                prefs[keyForProvider(provider.id)] = apiKey.trim()
+                prefs[keyForProvider(provider.id)] = ApiKeyCipher.encrypt(apiKey.trim())
                 prefs[statusKeyForProvider(provider.id)] = status.name
                 prefs[verifiedTimeKeyForProvider(provider.id)] = lastVerifiedTime
             }
@@ -103,15 +109,19 @@ class ApiKeyRepository(private val context: Context) {
         }
     }
 
+    /**
+     * Exports provider metadata without exporting plaintext API keys.
+     * This prevents an accidental backup/share from becoming a credential leak.
+     */
     suspend fun exportKeysAsJson(): String {
         val prefs = context.apiKeysDataStore.data.first()
         val jsonArray = JSONArray()
         for (provider in AiProvider.entries) {
-            val key = prefs[keyForProvider(provider.id)]
-            if (!key.isNullOrBlank()) {
+            val key = decodeStoredKey(prefs[keyForProvider(provider.id)])
+            if (key.isNotBlank()) {
                 val obj = JSONObject().apply {
                     put("providerId", provider.id)
-                    put("apiKey", key)
+                    put("hasApiKey", true)
                     put("selectedModel", prefs[modelKeyForProvider(provider.id)] ?: provider.defaultModel)
                     put("status", prefs[statusKeyForProvider(provider.id)] ?: KeyStatus.UNTESTED.name)
                 }
@@ -121,6 +131,9 @@ class ApiKeyRepository(private val context: Context) {
         return jsonArray.toString(2)
     }
 
+    /**
+     * Imports metadata only. API keys must be entered again on the destination install.
+     */
     suspend fun importKeysFromJson(jsonString: String): Int {
         var importedCount = 0
         try {
@@ -129,15 +142,11 @@ class ApiKeyRepository(private val context: Context) {
                 for (i in 0 until jsonArray.length()) {
                     val obj = jsonArray.getJSONObject(i)
                     val pId = obj.optString("providerId", "")
-                    val key = obj.optString("apiKey", "")
-                    if (pId.isNotEmpty() && key.isNotEmpty()) {
-                        prefs[keyForProvider(pId)] = key
+                    if (pId.isNotEmpty() && obj.optBoolean("hasApiKey", false)) {
                         val status = obj.optString("status", KeyStatus.UNTESTED.name)
                         prefs[statusKeyForProvider(pId)] = status
                         val model = obj.optString("selectedModel", "")
-                        if (model.isNotEmpty()) {
-                            prefs[modelKeyForProvider(pId)] = model
-                        }
+                        if (model.isNotEmpty()) prefs[modelKeyForProvider(pId)] = model
                         importedCount++
                     }
                 }
