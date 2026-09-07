@@ -30,50 +30,152 @@ fun ImageStudioScreen(
     var prompt by remember { mutableStateOf("") }
     var size by remember { mutableStateOf("1024x1024") }
 
-    LazyColumn(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    LazyColumn(
+        modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
         item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Column(Modifier.weight(1f)) {
-                    Text("Image Studio", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                    Text("Generate real images through a configured provider.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Image Studio",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "Generate real images through a configured provider.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
-                OutlinedButton(onClick = onOpenApiKeys) { Icon(Icons.Default.VpnKey, null); Spacer(Modifier.width(6.dp)); Text("Keys") }
+                OutlinedButton(onClick = onOpenApiKeys) {
+                    Icon(Icons.Default.VpnKey, contentDescription = null)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Keys")
+                }
             }
         }
         item {
-            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp)) {
-                Column(Modifier.padding(20.dp)) {
-                    Text("Create image", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text(
+                        "Create image",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
                     Spacer(Modifier.height(12.dp))
-                    OutlinedTextField(prompt, { prompt = it }, Modifier.fillMaxWidth(), minLines = 5, label = { Text("Prompt") }, placeholder = { Text("Describe exactly what you want ArcAI to create…") }, shape = RoundedCornerShape(18.dp))
+                    OutlinedTextField(
+                        value = prompt,
+                        onValueChange = { prompt = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 5,
+                        label = { Text("Prompt") },
+                        placeholder = { Text("Describe exactly what you want ArcAI to create…") },
+                        shape = RoundedCornerShape(18.dp)
+                    )
                     Spacer(Modifier.height(12.dp))
-                    Text("Provider: OpenAI • Model: ${AiProvider.OPENAI.defaultModel}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        "Provider: OpenAI • Model: ${AiProvider.OPENAI.defaultModel}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf("1024x1024", "1024x1536", "1536x1024").forEach { option ->
-                            FilterChip(selected = size == option, onClick = { size = option }, label = { Text(option) })
+                            FilterChip(
+                                selected = size == option,
+                                onClick = { size = option },
+                                label = { Text(option) }
+                            )
                         }
                     }
                     Spacer(Modifier.height(14.dp))
-                    Button(onClick = { onGenerateImage(prompt.trim(), AiProvider.OPENAI, AiProvider.OPENAI.defaultModel); prompt = "" }, enabled = prompt.isNotBlank() && !isGenerating, Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
-                        if (isGenerating) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Icon(Icons.Default.AutoAwesome, null)
-                        Spacer(Modifier.width(8.dp)); Text(if (isGenerating) "Generating…" else "Generate Image")
+                    Button(
+                        onClick = {
+                            onGenerateImage(
+                                prompt.trim(),
+                                AiProvider.OPENAI,
+                                AiProvider.OPENAI.defaultModel
+                            )
+                            prompt = ""
+                        },
+                        enabled = prompt.isNotBlank() && !isGenerating,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        if (isGenerating) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Icon(Icons.Default.AutoAwesome, contentDescription = null)
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (isGenerating) "Generating…" else "Generate Image")
                     }
                 }
             }
         }
-        item { Text("History", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
-        if (imageHistory.isEmpty()) item { Text("No generated images yet.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item {
+            Text(
+                "History",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        if (imageHistory.isEmpty()) {
+            item {
+                Text(
+                    "No generated images yet.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
         items(imageHistory, key = { it.id }) { item ->
-            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
-                Column(Modifier.padding(12.dp)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("${item.providerId} • ${item.modelId}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                        IconButton(onClick = { onDeleteHistoryItem(item) }) { Icon(Icons.Default.DeleteOutline, "Delete") }
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp)
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            "${item.providerId} • ${item.modelId}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        IconButton(onClick = { onDeleteHistoryItem(item) }) {
+                            Icon(Icons.Default.DeleteOutline, contentDescription = "Delete")
+                        }
                     }
-                    Text(item.prompt, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        item.prompt,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
                     Spacer(Modifier.height(10.dp))
-                    AsyncImage(model = item.imageUrlOrBase64, contentDescription = item.prompt, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxWidth().height(260.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp)))
+                    AsyncImage(
+                        model = item.imageUrlOrBase64,
+                        contentDescription = item.prompt,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(260.dp)
+                            .background(
+                                MaterialTheme.colorScheme.surfaceVariant,
+                                RoundedCornerShape(14.dp)
+                            )
+                    )
                 }
             }
         }
