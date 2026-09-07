@@ -39,39 +39,59 @@ fun FilesScreen(
         }
     }
 
-    LazyColumn(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
         item {
             Text("Files", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             Text("Import a document, code file, text file, or image and send its contents to ArcAI.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         item {
-            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp)) {
-                Column(Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Outlined.InsertDriveFile, null, Modifier.size(44.dp), tint = MaterialTheme.colorScheme.primary)
+            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp)) {
+                Column(modifier = Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Outlined.InsertDriveFile, contentDescription = null, modifier = Modifier.size(44.dp), tint = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.height(10.dp))
                     Text(if (selectedName.isBlank()) "No file selected" else selectedName, fontWeight = FontWeight.Bold)
                     Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(14.dp))
                     Button(onClick = { picker.launch(arrayOf("text/*", "application/pdf", "application/json", "image/*", "application/octet-stream")) }) {
-                        Icon(Icons.Default.UploadFile, null); Spacer(Modifier.width(8.dp)); Text("Import File")
+                        Icon(Icons.Default.UploadFile, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Import File")
                     }
                 }
             }
         }
         item {
-            OutlinedTextField(instruction, { instruction = it }, Modifier.fillMaxWidth(), minLines = 3, label = { Text("AI instruction") }, shape = RoundedCornerShape(18.dp))
+            OutlinedTextField(
+                value = instruction,
+                onValueChange = { instruction = it },
+                modifier = Modifier.fillMaxWidth(),
+                minLines = 3,
+                label = { Text("AI instruction") },
+                shape = RoundedCornerShape(18.dp)
+            )
         }
         item {
-            Button(onClick = {
-                val payload = if (fileText.isNotBlank()) "File: $selectedName\n\nInstruction: $instruction\n\nContent:\n$fileText" else "File selected: $selectedName\nURI: $selectedUri\n\nInstruction: $instruction"
-                onNavigateToChatWithFile(payload)
-            }, enabled = selectedUri != null, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
-                Icon(Icons.Default.AutoAwesome, null); Spacer(Modifier.width(8.dp)); Text("Analyze with ${selectedProvider.displayName}")
+            Button(
+                onClick = {
+                    val payload = if (fileText.isNotBlank()) "File: $selectedName\n\nInstruction: $instruction\n\nContent:\n$fileText" else "File selected: $selectedName\nURI: $selectedUri\n\nInstruction: $instruction"
+                    onNavigateToChatWithFile(payload)
+                },
+                enabled = selectedUri != null,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Icon(Icons.Default.AutoAwesome, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Analyze with ${selectedProvider.displayName}")
             }
         }
         if (fileText.isNotBlank()) item {
-            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
-                Column(Modifier.padding(16.dp)) {
+            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
+                Column(modifier = Modifier.padding(16.dp)) {
                     Text("Extracted preview", fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(8.dp))
                     Text(fileText.take(3000), style = MaterialTheme.typography.bodySmall)
