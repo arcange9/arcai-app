@@ -61,7 +61,7 @@ fun AutomationScreen(onOpenSettings: () -> Unit) {
                         scheduledIds = scheduledIds + request.id
                         command = ""
                         status = "Task scheduled"
-                    }, enabled = command.isNotBlank(), Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+                    }, enabled = command.isNotBlank(), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
                         Icon(Icons.Default.Schedule, null); Spacer(Modifier.width(8.dp)); Text("Schedule Task")
                     }
                 }
@@ -77,7 +77,7 @@ fun AutomationScreen(onOpenSettings: () -> Unit) {
                     OutlinedButton(onClick = {
                         workManager.cancelAllWorkByTag("arcai-automation")
                         status = "Automation cancelled"
-                    }, Modifier.fillMaxWidth()) { Icon(Icons.Default.Stop, null); Spacer(Modifier.width(8.dp)); Text("Cancel All") }
+                    }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Stop, null); Spacer(Modifier.width(8.dp)); Text("Cancel All") }
                 }
             }
         }
