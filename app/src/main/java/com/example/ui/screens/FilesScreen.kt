@@ -65,7 +65,7 @@ fun FilesScreen(
             Button(onClick = {
                 val payload = if (fileText.isNotBlank()) "File: $selectedName\n\nInstruction: $instruction\n\nContent:\n$fileText" else "File selected: $selectedName\nURI: $selectedUri\n\nInstruction: $instruction"
                 onNavigateToChatWithFile(payload)
-            }, enabled = selectedUri != null, Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+            }, enabled = selectedUri != null, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
                 Icon(Icons.Default.AutoAwesome, null); Spacer(Modifier.width(8.dp)); Text("Analyze with ${selectedProvider.displayName}")
             }
         }
