@@ -40,7 +40,15 @@ android {
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       signingConfig = signingConfigs.getByName("release")
     }
-    debug { isDebuggable = true }
+    debug {
+      isDebuggable = true
+      // Sign with ALL schemes: some Android 12 ROMs (Tecno/Infinix/Redmi) reject v2-only APKs
+      signingConfig = signingConfigs.getByName("debug").apply {
+        enableV1Signing = true
+        enableV2Signing = true
+        enableV3Signing = true
+      }
+    }
   }
 
   compileOptions {
