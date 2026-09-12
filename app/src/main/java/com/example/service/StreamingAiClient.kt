@@ -67,10 +67,11 @@ class StreamingAiClient {
             if (!response.isSuccessful) error("HTTP ${response.code}: ${response.body?.string().orEmpty().take(500)}")
             val stream = response.body?.byteStream() ?: error("Empty response body")
             BufferedReader(InputStreamReader(stream)).use { reader ->
-                reader.forEachLine { line ->
-                    if (!line.startsWith("data:")) return@forEachLine
+                while (true) {
+                    val line = reader.readLine() ?: break
+                    if (!line.startsWith("data:")) continue
                     val payload = line.removePrefix("data:").trim()
-                    if (payload.isBlank() || payload == "[DONE]") return@forEachLine
+                    if (payload.isBlank() || payload == "[DONE]") continue
                     val delta = runCatching {
                         JSONObject(payload).optJSONArray("choices")?.optJSONObject(0)
                             ?.optJSONObject("delta")?.optString("content", "").orEmpty()
