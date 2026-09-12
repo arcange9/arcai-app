@@ -1,274 +1,168 @@
 package com.example.ui.screens
 
-import androidx.compose.animation.*
+import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
+import androidx.compose.material.icons.outlined.InsertDriveFile
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.model.AiProvider
-import com.example.ui.components.ArcAiButton
-import com.example.ui.theme.ArcPrimary
-import com.example.ui.theme.ArcSecondary
+
+private const val MAX_TEXT_BYTES = 2 * 1024 * 1024
 
 @Composable
 fun FilesScreen(
     selectedProvider: AiProvider,
     onNavigateToChatWithFile: (String) -> Unit
 ) {
-    var selectedFileType by remember { mutableStateOf("Document") }
-    var fileAnalysisPrompt by remember { mutableStateOf("") }
-    var isAnalyzing by remember { mutableStateOf(false) }
-    var analysisResult by remember { mutableStateOf<String?>(null) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var selectedUri by remember { mutableStateOf<Uri?>(null) }
+    var selectedName by remember { mutableStateOf("") }
+    var fileText by remember { mutableStateOf("") }
+    var instruction by remember { mutableStateOf("Summarize this file and extract the most important points.") }
+    var status by remember { mutableStateOf("Choose a file to begin") }
+
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            selectedUri = uri
+            selectedName = queryDisplayName(context, uri)
+            val mimeType = context.contentResolver.getType(uri).orEmpty().lowercase()
+            val result = extractSafeText(context, uri, mimeType)
+            fileText = result.text
+            status = result.status
+        }
+    }
 
     LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
+        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
-            Column(modifier = Modifier.padding(top = 8.dp)) {
-                Text(
-                    text = "File & Vision Studio",
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-                Text(
-                    text = "Analyze PDFs, documents, code files, and images using multimodal AI.",
-                    fontSize = 14.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+            Text("Files", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text(
+                "Import a document, code file, text file, or image and send supported contents to ArcAI.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
-
-        // Upload Dropzone Cards
         item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                FileTypeUploadCard(
-                    title = "Upload PDF / Doc",
-                    subtitle = "Text, PDF, Markdown",
-                    icon = Icons.Outlined.InsertDriveFile,
-                    color = ArcPrimary,
-                    isSelected = selectedFileType == "Document",
-                    onClick = { selectedFileType = "Document" },
-                    modifier = Modifier.weight(1f)
-                )
-
-                FileTypeUploadCard(
-                    title = "Upload Image",
-                    subtitle = "PNG, JPG, Screenshot",
-                    icon = Icons.Outlined.Image,
-                    color = ArcSecondary,
-                    isSelected = selectedFileType == "Image",
-                    onClick = { selectedFileType = "Image" },
-                    modifier = Modifier.weight(1f)
-                )
-            }
-        }
-
-        // File Action Composer
-        item {
-            Surface(
-                color = MaterialTheme.colorScheme.surface,
-                shape = RoundedCornerShape(24.dp),
-                border = androidx.compose.foundation.BorderStroke(
-                    1.dp,
-                    MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
-                ),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(18.dp)) {
-                    Text(
-                        text = "Analysis Instructions",
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Spacer(Modifier.height(8.dp))
-
-                    OutlinedTextField(
-                        value = fileAnalysisPrompt,
-                        onValueChange = { fileAnalysisPrompt = it },
-                        placeholder = {
-                            Text(
-                                text = if (selectedFileType == "Document")
-                                    "e.g. 'Summarize key points and extract action items from this document.'"
-                                else
-                                    "e.g. 'Read all visible text in this screenshot and explain the layout structure.'",
-                                fontSize = 13.sp
-                            )
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        minLines = 3,
-                        shape = RoundedCornerShape(16.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = MaterialTheme.colorScheme.primary,
-                            unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
-                        )
-                    )
-
+            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp)) {
+                Column(modifier = Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Outlined.InsertDriveFile, contentDescription = null, modifier = Modifier.size(44.dp), tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.height(10.dp))
+                    Text(if (selectedName.isBlank()) "No file selected" else selectedName, fontWeight = FontWeight.Bold)
+                    Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(14.dp))
-
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        SuggestionChip(
-                            onClick = { fileAnalysisPrompt = "Summarize the core takeaways in bullet points." },
-                            label = { Text("Summarize", fontSize = 11.sp) }
-                        )
-                        SuggestionChip(
-                            onClick = { fileAnalysisPrompt = "Extract all text (OCR) precisely." },
-                            label = { Text("Extract Text", fontSize = 11.sp) }
-                        )
-                        SuggestionChip(
-                            onClick = { fileAnalysisPrompt = "Explain code and detect potential errors." },
-                            label = { Text("Code Audit", fontSize = 11.sp) }
-                        )
+                    Button(onClick = {
+                        picker.launch(arrayOf(
+                            "text/*",
+                            "application/json",
+                            "application/pdf",
+                            "image/*",
+                            "application/octet-stream"
+                        ))
+                    }) {
+                        Icon(Icons.Default.UploadFile, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Import File")
                     }
-
-                    Spacer(Modifier.height(14.dp))
-
-                    ArcAiButton(
-                        text = if (isAnalyzing) "Analyzing File..." else "Analyze File with ${selectedProvider.displayName}",
-                        onClick = {
-                            isAnalyzing = true
-                            analysisResult = null
-                            // Simulate analysis
-                            analysisResult = "Analysis completed using ${selectedProvider.displayName}:\n\n1. Document Type: Structured Specification\n2. Key Highlights: Multimodal understanding satisfied, zero hardcoded credentials.\n3. Actionable Insights: Ready for production deployment."
-                            isAnalyzing = false
-                        },
-                        isLoading = isAnalyzing,
-                        icon = Icons.Default.AutoAwesome,
-                        modifier = Modifier.fillMaxWidth()
-                    )
                 }
             }
         }
-
-        // Analysis Result Card
-        if (analysisResult != null) {
-            item {
-                Surface(
-                    color = MaterialTheme.colorScheme.surface,
-                    shape = RoundedCornerShape(24.dp),
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.dp,
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(18.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.Verified,
-                                    contentDescription = null,
-                                    tint = ArcPrimary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    text = "AI Analysis Result",
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                            IconButton(onClick = { onNavigateToChatWithFile(analysisResult ?: "") }) {
-                                Icon(
-                                    imageVector = Icons.Default.OpenInNew,
-                                    contentDescription = "Open in Chat",
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                        }
-
-                        Spacer(Modifier.height(12.dp))
-                        Text(
-                            text = analysisResult ?: "",
-                            fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
+        item {
+            OutlinedTextField(
+                value = instruction,
+                onValueChange = { instruction = it },
+                modifier = Modifier.fillMaxWidth(),
+                minLines = 3,
+                label = { Text("AI instruction") },
+                shape = RoundedCornerShape(18.dp)
+            )
+        }
+        item {
+            Button(
+                onClick = {
+                    val payload = if (fileText.isNotBlank()) {
+                        "File: $selectedName\n\nInstruction: $instruction\n\nContent:\n$fileText"
+                    } else {
+                        "File selected: $selectedName\nURI: $selectedUri\n\nInstruction: $instruction"
                     }
+                    onNavigateToChatWithFile(payload)
+                },
+                enabled = selectedUri != null,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Icon(Icons.Default.AutoAwesome, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Analyze with ${selectedProvider.displayName}")
+            }
+        }
+        if (fileText.isNotBlank()) item {
+            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Extracted preview", fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(8.dp))
+                    Text(fileText.take(3000), style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
     }
 }
 
-@Composable
-fun FileTypeUploadCard(
-    title: String,
-    subtitle: String,
-    icon: ImageVector,
-    color: Color,
-    isSelected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        color = if (isSelected) color.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(20.dp),
-        border = androidx.compose.foundation.BorderStroke(
-            1.5.dp,
-            if (isSelected) color else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
-        ),
-        modifier = modifier.clickable { onClick() }
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            horizontalAlignment = Alignment.Start
-        ) {
-            Surface(
-                color = color.copy(alpha = 0.2f),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.size(40.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = color,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
-            }
-            Spacer(Modifier.height(10.dp))
-            Text(
-                text = title,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Text(
-                text = subtitle,
-                fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+private data class ExtractionResult(val text: String, val status: String)
+
+private fun queryDisplayName(context: Context, uri: Uri): String = runCatching {
+    context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+        if (cursor.moveToFirst()) cursor.getString(0) else uri.lastPathSegment.orEmpty()
+    } ?: uri.lastPathSegment.orEmpty()
+}.getOrDefault(uri.lastPathSegment.orEmpty())
+
+private fun extractSafeText(context: Context, uri: Uri, mimeType: String): ExtractionResult {
+    if (mimeType.startsWith("image/")) {
+        return ExtractionResult("", "Image selected • ready for a vision-capable provider")
+    }
+    if (mimeType == "application/pdf") {
+        return ExtractionResult("", "PDF selected • direct text extraction is not enabled yet")
+    }
+    if (!isTextLike(mimeType, uri)) {
+        return ExtractionResult("", "File selected • binary file content is not read as text")
+    }
+
+    return runCatching {
+        val bytes = context.contentResolver.openInputStream(uri)?.use { input ->
+            input.readNBytes(MAX_TEXT_BYTES + 1)
+        } ?: return ExtractionResult("", "Unable to open file")
+
+        if (bytes.size > MAX_TEXT_BYTES) {
+            return ExtractionResult(
+                bytes.copyOf(MAX_TEXT_BYTES).toString(Charsets.UTF_8),
+                "Text extracted • limited to 2 MB for safety"
             )
         }
+        val text = bytes.toString(Charsets.UTF_8)
+        ExtractionResult(text, "Text extracted • ${text.length} characters")
+    }.getOrElse {
+        ExtractionResult("", "File selected • text extraction failed safely")
     }
+}
+
+private fun isTextLike(mimeType: String, uri: Uri): Boolean {
+    if (mimeType.startsWith("text/")) return true
+    if (mimeType == "application/json" || mimeType == "application/xml" || mimeType == "application/javascript") return true
+    val name = uri.lastPathSegment.orEmpty().lowercase()
+    return listOf(".kt", ".kts", ".java", ".py", ".js", ".ts", ".tsx", ".jsx", ".c", ".h", ".cpp", ".cs", ".go", ".rs", ".swift", ".xml", ".html", ".css", ".md", ".txt", ".sql", ".yaml", ".yml", ".toml", ".properties", ".gradle", ".gradle.kts").any(name::endsWith)
 }

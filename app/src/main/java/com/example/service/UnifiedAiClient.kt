@@ -3,9 +3,6 @@ package com.example.service
 import com.example.data.entity.MessageEntity
 import com.example.model.AiProvider
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -13,8 +10,6 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.BufferedReader
-import java.io.InputStreamReader
 import java.util.concurrent.TimeUnit
 
 data class AiResponse(
@@ -60,22 +55,11 @@ class UnifiedAiClient {
                 AiProvider.MARTIAN, AiProvider.GROK -> {
                     generateOpenAiCompatible(provider, apiKey, modelId, systemPrompt, history, newPrompt, start)
                 }
-                AiProvider.GOOGLE_AI_STUDIO -> {
-                    generateGemini(apiKey, modelId, systemPrompt, history, newPrompt, start)
-                }
-                AiProvider.ANTHROPIC -> {
-                    generateAnthropic(apiKey, modelId, systemPrompt, history, newPrompt, start)
-                }
-                AiProvider.COHERE -> {
-                    generateCohere(apiKey, modelId, systemPrompt, history, newPrompt, start)
-                }
-                AiProvider.OLLAMA -> {
-                    generateOllama(apiKey, modelId, systemPrompt, history, newPrompt, start)
-                }
-                else -> {
-                    // Generic JSON fallback / simulation for specialty or custom providers
-                    generateGenericProvider(provider, apiKey, modelId, systemPrompt, history, newPrompt, start)
-                }
+                AiProvider.GOOGLE_AI_STUDIO -> generateGemini(apiKey, modelId, systemPrompt, history, newPrompt, start)
+                AiProvider.ANTHROPIC -> generateAnthropic(apiKey, modelId, systemPrompt, history, newPrompt, start)
+                AiProvider.COHERE -> generateCohere(apiKey, modelId, systemPrompt, history, newPrompt, start)
+                AiProvider.OLLAMA -> generateOllama(apiKey, modelId, systemPrompt, history, newPrompt, start)
+                else -> generateUnsupportedProvider(provider, modelId, start)
             }
         } catch (e: Exception) {
             val latency = System.currentTimeMillis() - start
@@ -109,7 +93,7 @@ class UnifiedAiClient {
             AiProvider.DEEPINFRA -> "https://api.deepinfra.com/v1/openai/chat/completions"
             AiProvider.MARTIAN -> "https://api.martian.ai/v1/chat/completions"
             AiProvider.GROK -> "https://api.x.ai/v1/chat/completions"
-            else -> "https://api.openai.com/v1/chat/completions"
+            else -> error("Unsupported OpenAI-compatible provider")
         }
 
         val messages = JSONArray()
@@ -119,10 +103,10 @@ class UnifiedAiClient {
                 put("content", systemPrompt)
             })
         }
-        for (m in history) {
+        history.forEach { message ->
             messages.put(JSONObject().apply {
-                put("role", m.role)
-                put("content", m.content)
+                put("role", message.role)
+                put("content", message.content)
             })
         }
         messages.put(JSONObject().apply {
@@ -144,24 +128,21 @@ class UnifiedAiClient {
             .post(bodyJson.toString().toRequestBody(jsonMediaType))
             .build()
 
-        val response = client.newCall(request).execute()
-        val latency = System.currentTimeMillis() - start
-        val respBody = response.body?.string() ?: ""
-        response.close()
+        client.newCall(request).execute().use { response ->
+            val latency = System.currentTimeMillis() - start
+            val respBody = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw Exception("HTTP ${response.code}: ${safeErrorBody(respBody)}")
 
-        if (!response.isSuccessful) {
-            throw Exception("HTTP ${response.code}: $respBody")
+            val json = JSONObject(respBody)
+            val content = json.optJSONArray("choices")
+                ?.optJSONObject(0)
+                ?.optJSONObject("message")
+                ?.optString("content")
+                ?.takeIf { it.isNotBlank() }
+                ?: "Empty response"
+
+            return AiResponse(content, provider.id, modelId, latency)
         }
-
-        val json = JSONObject(respBody)
-        val choices = json.optJSONArray("choices")
-        val content = if (choices != null && choices.length() > 0) {
-            choices.getJSONObject(0).optJSONObject("message")?.optString("content", "") ?: "Empty response"
-        } else {
-            "No output choices returned."
-        }
-
-        return AiResponse(content, provider.id, modelId, latency)
     }
 
     private fun generateGemini(
@@ -173,22 +154,20 @@ class UnifiedAiClient {
         start: Long
     ): AiResponse {
         val url = "https://generativelanguage.googleapis.com/v1beta/models/$modelId:generateContent?key=$apiKey"
-
-        val contentsArray = JSONArray()
-        for (m in history) {
-            val role = if (m.role == "user") "user" else "model"
-            contentsArray.put(JSONObject().apply {
-                put("role", role)
-                put("parts", JSONArray().put(JSONObject().put("text", m.content)))
+        val contents = JSONArray()
+        history.forEach { message ->
+            contents.put(JSONObject().apply {
+                put("role", if (message.role == "user") "user" else "model")
+                put("parts", JSONArray().put(JSONObject().put("text", message.content)))
             })
         }
-        contentsArray.put(JSONObject().apply {
+        contents.put(JSONObject().apply {
             put("role", "user")
             put("parts", JSONArray().put(JSONObject().put("text", newPrompt)))
         })
 
-        val bodyJson = JSONObject().apply {
-            put("contents", contentsArray)
+        val body = JSONObject().apply {
+            put("contents", contents)
             if (systemPrompt.isNotBlank()) {
                 put("systemInstruction", JSONObject().apply {
                     put("parts", JSONArray().put(JSONObject().put("text", systemPrompt)))
@@ -199,30 +178,22 @@ class UnifiedAiClient {
         val request = Request.Builder()
             .url(url)
             .header("Content-Type", "application/json")
-            .post(bodyJson.toString().toRequestBody(jsonMediaType))
+            .post(body.toString().toRequestBody(jsonMediaType))
             .build()
 
-        val response = client.newCall(request).execute()
-        val latency = System.currentTimeMillis() - start
-        val respBody = response.body?.string() ?: ""
-        response.close()
+        client.newCall(request).execute().use { response ->
+            val latency = System.currentTimeMillis() - start
+            val respBody = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw Exception("HTTP ${response.code}: ${safeErrorBody(respBody)}")
 
-        if (!response.isSuccessful) {
-            throw Exception("HTTP ${response.code}: $respBody")
+            val parts = JSONObject(respBody)
+                .optJSONArray("candidates")
+                ?.optJSONObject(0)
+                ?.optJSONObject("content")
+                ?.optJSONArray("parts")
+            val content = parts?.optJSONObject(0)?.optString("text")?.takeIf { it.isNotBlank() } ?: "Empty response"
+            return AiResponse(content, AiProvider.GOOGLE_AI_STUDIO.id, modelId, latency)
         }
-
-        val json = JSONObject(respBody)
-        val candidates = json.optJSONArray("candidates")
-        val content = if (candidates != null && candidates.length() > 0) {
-            val parts = candidates.getJSONObject(0).optJSONObject("content")?.optJSONArray("parts")
-            if (parts != null && parts.length() > 0) {
-                parts.getJSONObject(0).optString("text", "")
-            } else "Empty response"
-        } else {
-            "No candidates returned."
-        }
-
-        return AiResponse(content, AiProvider.GOOGLE_AI_STUDIO.id, modelId, latency)
     }
 
     private fun generateAnthropic(
@@ -233,13 +204,11 @@ class UnifiedAiClient {
         newPrompt: String,
         start: Long
     ): AiResponse {
-        val url = "https://api.anthropic.com/v1/messages"
-
         val messages = JSONArray()
-        for (m in history) {
+        history.forEach { message ->
             messages.put(JSONObject().apply {
-                put("role", if (m.role == "user") "user" else "assistant")
-                put("content", m.content)
+                put("role", if (message.role == "user") "user" else "assistant")
+                put("content", message.content)
             })
         }
         messages.put(JSONObject().apply {
@@ -247,39 +216,30 @@ class UnifiedAiClient {
             put("content", newPrompt)
         })
 
-        val bodyJson = JSONObject().apply {
+        val body = JSONObject().apply {
             put("model", modelId)
             put("max_tokens", 2048)
             put("messages", messages)
-            if (systemPrompt.isNotBlank()) {
-                put("system", systemPrompt)
-            }
+            if (systemPrompt.isNotBlank()) put("system", systemPrompt)
         }
 
         val request = Request.Builder()
-            .url(url)
+            .url("https://api.anthropic.com/v1/messages")
             .header("x-api-key", apiKey)
             .header("anthropic-version", "2023-06-01")
             .header("Content-Type", "application/json")
-            .post(bodyJson.toString().toRequestBody(jsonMediaType))
+            .post(body.toString().toRequestBody(jsonMediaType))
             .build()
 
-        val response = client.newCall(request).execute()
-        val latency = System.currentTimeMillis() - start
-        val respBody = response.body?.string() ?: ""
-        response.close()
-
-        if (!response.isSuccessful) {
-            throw Exception("HTTP ${response.code}: $respBody")
+        client.newCall(request).execute().use { response ->
+            val latency = System.currentTimeMillis() - start
+            val respBody = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw Exception("HTTP ${response.code}: ${safeErrorBody(respBody)}")
+            val content = JSONObject(respBody).optJSONArray("content")
+                ?.optJSONObject(0)?.optString("text")?.takeIf { it.isNotBlank() }
+                ?: "Empty response"
+            return AiResponse(content, AiProvider.ANTHROPIC.id, modelId, latency)
         }
-
-        val json = JSONObject(respBody)
-        val contentArray = json.optJSONArray("content")
-        val content = if (contentArray != null && contentArray.length() > 0) {
-            contentArray.getJSONObject(0).optString("text", "")
-        } else "Empty response"
-
-        return AiResponse(content, AiProvider.ANTHROPIC.id, modelId, latency)
     }
 
     private fun generateCohere(
@@ -290,42 +250,34 @@ class UnifiedAiClient {
         newPrompt: String,
         start: Long
     ): AiResponse {
-        val url = "https://api.cohere.ai/v1/chat"
-        val bodyJson = JSONObject().apply {
+        val body = JSONObject().apply {
             put("model", modelId)
             put("message", newPrompt)
-            if (systemPrompt.isNotBlank()) {
-                put("preamble", systemPrompt)
-            }
-            val chatHistory = JSONArray()
-            for (m in history) {
-                chatHistory.put(JSONObject().apply {
-                    put("role", if (m.role == "user") "USER" else "CHATBOT")
-                    put("message", m.content)
-                })
-            }
-            put("chat_history", chatHistory)
+            if (systemPrompt.isNotBlank()) put("preamble", systemPrompt)
+            put("chat_history", JSONArray().apply {
+                history.forEach { message ->
+                    put(JSONObject().apply {
+                        put("role", if (message.role == "user") "USER" else "CHATBOT")
+                        put("message", message.content)
+                    })
+                }
+            })
         }
 
         val request = Request.Builder()
-            .url(url)
+            .url("https://api.cohere.ai/v1/chat")
             .header("Authorization", "Bearer $apiKey")
             .header("Content-Type", "application/json")
-            .post(bodyJson.toString().toRequestBody(jsonMediaType))
+            .post(body.toString().toRequestBody(jsonMediaType))
             .build()
 
-        val response = client.newCall(request).execute()
-        val latency = System.currentTimeMillis() - start
-        val respBody = response.body?.string() ?: ""
-        response.close()
-
-        if (!response.isSuccessful) {
-            throw Exception("HTTP ${response.code}: $respBody")
+        client.newCall(request).execute().use { response ->
+            val latency = System.currentTimeMillis() - start
+            val respBody = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw Exception("HTTP ${response.code}: ${safeErrorBody(respBody)}")
+            val content = JSONObject(respBody).optString("text").takeIf { it.isNotBlank() } ?: "Empty response"
+            return AiResponse(content, AiProvider.COHERE.id, modelId, latency)
         }
-
-        val json = JSONObject(respBody)
-        val content = json.optString("text", "No response text")
-        return AiResponse(content, AiProvider.COHERE.id, modelId, latency)
     }
 
     private fun generateOllama(
@@ -336,8 +288,10 @@ class UnifiedAiClient {
         newPrompt: String,
         start: Long
     ): AiResponse {
-        val baseUrl = if (hostUrl.endsWith("/")) hostUrl.dropLast(1) else hostUrl
-        val url = "$baseUrl/api/chat"
+        val baseUrl = hostUrl.trim().removeSuffix("/")
+        require(baseUrl.startsWith("http://") || baseUrl.startsWith("https://")) {
+            "Ollama host must start with http:// or https://"
+        }
 
         val messages = JSONArray()
         if (systemPrompt.isNotBlank()) {
@@ -346,10 +300,10 @@ class UnifiedAiClient {
                 put("content", systemPrompt)
             })
         }
-        for (m in history) {
+        history.forEach { message ->
             messages.put(JSONObject().apply {
-                put("role", m.role)
-                put("content", m.content)
+                put("role", message.role)
+                put("content", message.content)
             })
         }
         messages.put(JSONObject().apply {
@@ -357,51 +311,41 @@ class UnifiedAiClient {
             put("content", newPrompt)
         })
 
-        val bodyJson = JSONObject().apply {
+        val body = JSONObject().apply {
             put("model", modelId)
             put("messages", messages)
             put("stream", false)
         }
 
         val request = Request.Builder()
-            .url(url)
+            .url("$baseUrl/api/chat")
             .header("Content-Type", "application/json")
-            .post(bodyJson.toString().toRequestBody(jsonMediaType))
+            .post(body.toString().toRequestBody(jsonMediaType))
             .build()
 
-        val response = client.newCall(request).execute()
-        val latency = System.currentTimeMillis() - start
-        val respBody = response.body?.string() ?: ""
-        response.close()
-
-        if (!response.isSuccessful) {
-            throw Exception("HTTP ${response.code}: $respBody")
+        client.newCall(request).execute().use { response ->
+            val latency = System.currentTimeMillis() - start
+            val respBody = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw Exception("HTTP ${response.code}: ${safeErrorBody(respBody)}")
+            val content = JSONObject(respBody).optJSONObject("message")?.optString("content")
+                ?.takeIf { it.isNotBlank() } ?: "Empty response"
+            return AiResponse(content, AiProvider.OLLAMA.id, modelId, latency)
         }
-
-        val json = JSONObject(respBody)
-        val messageObj = json.optJSONObject("message")
-        val content = messageObj?.optString("content", "") ?: "Empty response"
-        return AiResponse(content, AiProvider.OLLAMA.id, modelId, latency)
     }
 
-    private fun generateGenericProvider(
-        provider: AiProvider,
-        apiKey: String,
-        modelId: String,
-        systemPrompt: String,
-        history: List<MessageEntity>,
-        newPrompt: String,
-        start: Long
-    ): AiResponse {
-        // For specialty endpoints like Replicate, Stability, ElevenLabs, Runway, etc., when called in chat context:
-        val latency = System.currentTimeMillis() - start
+    private fun generateUnsupportedProvider(provider: AiProvider, modelId: String, start: Long): AiResponse {
         return AiResponse(
-            content = "⚡ [${provider.displayName} • $modelId]\n\n" +
-                    "Provider verified! Your prompt:\n\"$newPrompt\"\n\n" +
-                    "To generate audio or images with ${provider.displayName}, visit the AI Image Studio or Voice Assistant tab in ArcAI Assistant.",
+            content = "⚠️ ${provider.displayName} ($modelId) is listed in ArcAI but does not have a chat adapter implemented yet. No simulated response was generated. Please choose a supported chat provider or use the provider's dedicated feature when available.",
             providerId = provider.id,
             modelUsed = modelId,
-            latencyMs = latency
+            latencyMs = System.currentTimeMillis() - start
         )
+    }
+
+    private fun safeErrorBody(body: String): String {
+        if (body.isBlank()) return "No error details returned by provider."
+        return body
+            .replace(Regex("(?i)(api[_-]?key|authorization|x-api-key)\\s*[:=]\\s*[\\\"']?[^,\\\"'\\s}]+"), "$1=[REDACTED]")
+            .take(1200)
     }
 }

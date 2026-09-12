@@ -5,6 +5,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.model.AiProvider
+import com.example.security.ApiKeyCipher
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -28,6 +29,7 @@ data class StoredKeyInfo(
 )
 
 class ApiKeyRepository(private val context: Context) {
+
     companion object {
         private val DEFAULT_PROVIDER_KEY = stringPreferencesKey("default_provider_id")
         private const val SELECTED_MODEL_PREFIX = "selected_model_"
@@ -35,16 +37,14 @@ class ApiKeyRepository(private val context: Context) {
         private const val LAST_VERIFIED_PREFIX = "last_verified_"
     }
 
-    private val secureKeyStore = SecureKeyStore()
-
     private fun keyForProvider(providerId: String) = stringPreferencesKey("key_$providerId")
     private fun modelKeyForProvider(providerId: String) = stringPreferencesKey("$SELECTED_MODEL_PREFIX$providerId")
     private fun statusKeyForProvider(providerId: String) = stringPreferencesKey("$STATUS_PREFIX$providerId")
     private fun verifiedTimeKeyForProvider(providerId: String) = longPreferencesKey("$LAST_VERIFIED_PREFIX$providerId")
 
-    private fun decryptStoredKey(raw: String?): String {
-        if (raw.isNullOrBlank()) return ""
-        return secureKeyStore.decrypt(raw) ?: raw // Backward-compatible read for legacy installs.
+    private fun decodeStoredKey(value: String?): String {
+        if (value.isNullOrBlank()) return ""
+        return ApiKeyCipher.decrypt(value)
     }
 
     val defaultProviderFlow: Flow<AiProvider> = context.apiKeysDataStore.data.map { prefs ->
@@ -53,11 +53,11 @@ class ApiKeyRepository(private val context: Context) {
     }
 
     fun getKeyFlow(providerId: String): Flow<String?> = context.apiKeysDataStore.data.map { prefs ->
-        decryptStoredKey(prefs[keyForProvider(providerId)]).ifBlank { null }
+        prefs[keyForProvider(providerId)]?.let(::decodeStoredKey)?.ifBlank { null }
     }
 
     fun getKeyInfoFlow(provider: AiProvider): Flow<StoredKeyInfo> = context.apiKeysDataStore.data.map { prefs ->
-        val key = decryptStoredKey(prefs[keyForProvider(provider.id)])
+        val key = decodeStoredKey(prefs[keyForProvider(provider.id)])
         val model = prefs[modelKeyForProvider(provider.id)] ?: provider.defaultModel
         val statusStr = prefs[statusKeyForProvider(provider.id)] ?: KeyStatus.UNTESTED.name
         val time = prefs[verifiedTimeKeyForProvider(provider.id)] ?: 0L
@@ -82,32 +82,33 @@ class ApiKeyRepository(private val context: Context) {
                 prefs.remove(statusKeyForProvider(provider.id))
                 prefs.remove(verifiedTimeKeyForProvider(provider.id))
             } else {
-                prefs[keyForProvider(provider.id)] = secureKeyStore.encrypt(apiKey.trim())
+                prefs[keyForProvider(provider.id)] = ApiKeyCipher.encrypt(apiKey.trim())
                 prefs[statusKeyForProvider(provider.id)] = status.name
                 prefs[verifiedTimeKeyForProvider(provider.id)] = lastVerifiedTime
             }
         }
     }
 
-    /** Re-encrypts keys saved by versions of ArcAI that used plaintext DataStore values. */
-    suspend fun migrateLegacyKeys(): Int {
-        var migrated = 0
+    /**
+     * One-time migration for keys written by pre-v0.2 builds.
+     * Plaintext values are converted to Android Keystore-backed ciphertext and
+     * are never exported by the repository's backup/export API.
+     */
+    suspend fun migrateLegacyPlaintextKeys() {
         context.apiKeysDataStore.edit { prefs ->
             for (provider in AiProvider.entries) {
-                val key = keyForProvider(provider.id)
-                val raw = prefs[key]
-                if (!raw.isNullOrBlank() && !secureKeyStore.isEncrypted(raw)) {
-                    prefs[key] = secureKeyStore.encrypt(raw)
-                    migrated++
+                val preference = keyForProvider(provider.id)
+                val stored = prefs[preference]
+                if (!stored.isNullOrBlank() && !stored.startsWith("enc:v1:")) {
+                    prefs[preference] = ApiKeyCipher.encrypt(stored.trim())
                 }
             }
         }
-        return migrated
     }
 
     suspend fun saveSelectedModel(provider: AiProvider, modelId: String) {
         context.apiKeysDataStore.edit { prefs ->
-            prefs[modelKeyForProvider(provider.id)] = modelId.trim()
+            prefs[modelKeyForProvider(provider.id)] = modelId
         }
     }
 
@@ -125,15 +126,19 @@ class ApiKeyRepository(private val context: Context) {
         }
     }
 
+    /**
+     * Exports provider metadata without exporting plaintext API keys.
+     * This intentionally cannot recreate credentials on another device.
+     */
     suspend fun exportKeysAsJson(): String {
         val prefs = context.apiKeysDataStore.data.first()
         val jsonArray = JSONArray()
         for (provider in AiProvider.entries) {
-            val key = decryptStoredKey(prefs[keyForProvider(provider.id)])
+            val key = decodeStoredKey(prefs[keyForProvider(provider.id)])
             if (key.isNotBlank()) {
                 jsonArray.put(JSONObject().apply {
                     put("providerId", provider.id)
-                    put("apiKey", key)
+                    put("hasApiKey", true)
                     put("selectedModel", prefs[modelKeyForProvider(provider.id)] ?: provider.defaultModel)
                     put("status", prefs[statusKeyForProvider(provider.id)] ?: KeyStatus.UNTESTED.name)
                 })
@@ -142,27 +147,38 @@ class ApiKeyRepository(private val context: Context) {
         return jsonArray.toString(2)
     }
 
+    /**
+     * Imports metadata and the legacy plaintext-key format. Imported credentials
+     * are encrypted immediately with Android Keystore and are never logged.
+     */
     suspend fun importKeysFromJson(jsonString: String): Int {
-        var importedCount = 0
-        runCatching {
+        return runCatching {
             val jsonArray = JSONArray(jsonString)
+            var importedCount = 0
             context.apiKeysDataStore.edit { prefs ->
                 for (i in 0 until jsonArray.length()) {
-                    val obj = jsonArray.getJSONObject(i)
-                    val providerId = obj.optString("providerId")
-                    val apiKey = obj.optString("apiKey")
-                    val provider = AiProvider.fromId(providerId)
-                    if (providerId.isNotBlank() && apiKey.isNotBlank() && provider != null) {
-                        prefs[keyForProvider(providerId)] = secureKeyStore.encrypt(apiKey.trim())
-                        prefs[statusKeyForProvider(providerId)] = obj.optString("status", KeyStatus.UNTESTED.name)
-                        obj.optString("selectedModel").takeIf { it.isNotBlank() }?.let {
-                            prefs[modelKeyForProvider(providerId)] = it
-                        }
-                        importedCount++
+                    val obj = jsonArray.optJSONObject(i) ?: continue
+                    val providerId = obj.optString("providerId").trim()
+                    if (providerId.isEmpty() || AiProvider.fromId(providerId) == null) continue
+
+                    val legacyApiKey = obj.optString("apiKey").trim()
+                    if (legacyApiKey.isNotEmpty()) {
+                        prefs[keyForProvider(providerId)] = ApiKeyCipher.encrypt(legacyApiKey)
+                    } else if (!obj.optBoolean("hasApiKey", false)) {
+                        continue
                     }
+
+                    val status = runCatching {
+                        KeyStatus.valueOf(obj.optString("status", KeyStatus.UNTESTED.name))
+                    }.getOrDefault(KeyStatus.UNTESTED)
+                    prefs[statusKeyForProvider(providerId)] = status.name
+
+                    val model = obj.optString("selectedModel").trim()
+                    if (model.isNotEmpty()) prefs[modelKeyForProvider(providerId)] = model
+                    importedCount++
                 }
             }
-        }
-        return importedCount
+            importedCount
+        }.getOrDefault(0)
     }
 }
