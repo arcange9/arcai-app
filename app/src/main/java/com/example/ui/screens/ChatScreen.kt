@@ -3,6 +3,9 @@ package com.example.ui.screens
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.util.Base64
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -41,6 +44,8 @@ fun ChatScreen(
     selectedProvider: AiProvider,
     selectedModelId: String,
     isGenerating: Boolean,
+    streamingContent: String = "",
+    onStopGeneration: () -> Unit = { },
     onSendMessage: (String, String?) -> Unit,
     onSelectProvider: (AiProvider) -> Unit,
     onSelectModel: (String) -> Unit,
@@ -58,6 +63,17 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+
+    val imagePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.openInputStream(uri)?.use { stream ->
+                    val bytes = stream.readBytes()
+                    attachedImageBase64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                }
+            }
+        }
+    }
 
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
@@ -182,8 +198,15 @@ fun ChatScreen(
                     }
 
                     if (isGenerating) {
-                        item {
-                            TypingIndicatorBubble(providerName = selectedProvider.displayName)
+                        item(key = "arcai_streaming") {
+                            if (streamingContent.isNotBlank()) {
+                                StreamingResponseBubble(
+                                    content = streamingContent,
+                                    providerName = selectedProvider.displayName
+                                )
+                            } else {
+                                TypingIndicatorBubble(providerName = selectedProvider.displayName)
+                            }
                         }
                     }
                 }
@@ -235,12 +258,9 @@ fun ChatScreen(
                     .padding(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Vision attach button
+                // Vision attach button (real image picker -> base64)
                 IconButton(
-                    onClick = {
-                        // Simulate attaching an image base64 for Vision multimodal queries
-                        attachedImageBase64 = "simulated_base64_vision_attachment"
-                    }
+                    onClick = { imagePickerLauncher.launch("image/*") }
                 ) {
                     Icon(
                         imageVector = Icons.Default.AddPhotoAlternate,
@@ -266,27 +286,43 @@ fun ChatScreen(
 
                 Spacer(modifier = Modifier.width(8.dp))
 
-                // Send Button
+                // Send / Stop button
                 val canSend = inputText.isNotBlank() && !isGenerating
-                IconButton(
-                    onClick = {
-                        if (canSend) {
-                            onSendMessage(inputText.trim(), attachedImageBase64)
-                            inputText = ""
-                            attachedImageBase64 = null
-                        }
-                    },
-                    enabled = canSend,
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(if (canSend) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.Send,
-                        contentDescription = "Send",
-                        tint = if (canSend) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                if (isGenerating) {
+                    IconButton(
+                        onClick = onStopGeneration,
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.error)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Stop,
+                            contentDescription = "Stop generation",
+                            tint = MaterialTheme.colorScheme.onError
+                        )
+                    }
+                } else {
+                    IconButton(
+                        onClick = {
+                            if (canSend) {
+                                onSendMessage(inputText.trim(), attachedImageBase64)
+                                inputText = ""
+                                attachedImageBase64 = null
+                            }
+                        },
+                        enabled = canSend,
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(if (canSend) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Send,
+                            contentDescription = "Send",
+                            tint = if (canSend) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
         }
@@ -490,6 +526,39 @@ fun FormattedCodeContent(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun StreamingResponseBubble(content: String, providerName: String) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier
+            .padding(vertical = 4.dp)
+            .fillMaxWidth(0.9f)
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Text(
+                text = content,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(12.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "$providerName is streaming...",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }

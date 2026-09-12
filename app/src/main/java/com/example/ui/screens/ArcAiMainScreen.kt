@@ -49,6 +49,7 @@ fun ArcAiMainScreen(
     val selectedProvider by viewModel.selectedProvider.collectAsStateWithLifecycle()
     val selectedModelId by viewModel.selectedModelId.collectAsStateWithLifecycle()
     val isGenerating by viewModel.isGenerating.collectAsStateWithLifecycle()
+    val streamingContent by viewModel.streamingContent.collectAsStateWithLifecycle()
     val currentChatId by viewModel.currentChatId.collectAsStateWithLifecycle()
     val activeMessages by viewModel.messagesForActiveChat.collectAsStateWithLifecycle()
     val allProviderKeys by viewModel.allProviderKeys.collectAsStateWithLifecycle()
@@ -246,6 +247,8 @@ fun ArcAiMainScreen(
                                     selectedProvider = selectedProvider,
                                     selectedModelId = selectedModelId,
                                     isGenerating = isGenerating,
+                                    streamingContent = streamingContent,
+                                    onStopGeneration = { viewModel.stopGeneration() },
                                     onSendMessage = { txt, img ->
                                         viewModel.sendChatMessage(txt, img)
                                     },

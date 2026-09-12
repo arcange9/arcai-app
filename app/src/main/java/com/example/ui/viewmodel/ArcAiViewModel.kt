@@ -11,9 +11,14 @@ import com.example.data.entity.*
 import com.example.model.AiProvider
 import com.example.service.ImageGenerationService
 import com.example.service.ProviderVerificationService
+import com.example.service.StreamingAiClient
 import com.example.service.UnifiedAiClient
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class UiNotification(val message: String, val isError: Boolean = false)
 
@@ -33,8 +38,20 @@ class ArcAiViewModel(application: Application) : AndroidViewModel(application) {
     val currentChatId: StateFlow<Long?> = _currentChatId.asStateFlow()
     private val _isGenerating = MutableStateFlow(false)
     val isGenerating: StateFlow<Boolean> = _isGenerating.asStateFlow()
+    private val _streamingContent = MutableStateFlow("")
+    val streamingContent: StateFlow<String> = _streamingContent.asStateFlow()
     private val _notification = MutableSharedFlow<UiNotification>()
     val notification = _notification.asSharedFlow()
+
+    private val streamingClient = StreamingAiClient()
+    private var generationJob: Job? = null
+
+    /** Providers that expose OpenAI-compatible SSE endpoints (real token streaming). */
+    private val streamingProviders = setOf(
+        AiProvider.OPENAI, AiProvider.GROQ, AiProvider.DEEPSEEK, AiProvider.OPENROUTER,
+        AiProvider.MISTRAL_AI, AiProvider.TOGETHER_AI, AiProvider.FIREWORKS_AI,
+        AiProvider.DEEPINFRA, AiProvider.GROK
+    )
 
     val allProviderKeys: StateFlow<Map<String, StoredKeyInfo>> = combine(AiProvider.entries.map { p -> keyRepo.getKeyInfoFlow(p) }) { infos -> infos.associateBy { it.providerId } }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
     val chatList: StateFlow<List<ChatEntity>> = chatDao.getAllChats().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -67,17 +84,63 @@ class ArcAiViewModel(application: Application) : AndroidViewModel(application) {
         val chatId = _currentChatId.value ?: return
         val provider = _selectedProvider.value
         val model = _selectedModelId.value
-        viewModelScope.launch {
+        generationJob?.cancel()
+        generationJob = viewModelScope.launch {
             val currentMsgs = _messagesForActiveChat.value
+            val systemPrompt = "You are ArcAI Assistant. Provide clear, helpful, well-formatted markdown answers."
             chatDao.insertMessage(MessageEntity(chatId = chatId, role = "user", content = userText, imageAttachmentBase64 = imageBase64))
             _isGenerating.value = true
+            _streamingContent.value = ""
+            val apiKey = allProviderKeys.value[provider.id]?.apiKey ?: ""
+            val streamed = StringBuilder()
             try {
-                val apiKey = allProviderKeys.value[provider.id]?.apiKey ?: ""
-                val response = aiClient.generateChatResponse(provider, apiKey, model, "You are ArcAI Assistant. Provide clear, helpful, well-formatted markdown answers.", currentMsgs, userText)
-                chatDao.insertMessage(MessageEntity(chatId = chatId, role = "assistant", content = response.content, providerName = provider.displayName, modelUsed = response.modelUsed, latencyMs = response.latencyMs, hasCodeBlock = response.content.contains("```")))
+                val useStreaming = provider in streamingProviders && imageBase64 == null && apiKey.isNotBlank()
+                val content = if (useStreaming) {
+                    try {
+                        streamingClient.streamOpenAiCompatible(provider, apiKey, model, systemPrompt, currentMsgs, userText)
+                            .collect { chunk ->
+                                streamed.append(chunk)
+                                _streamingContent.value = streamed.toString()
+                            }
+                        streamed.toString()
+                    } catch (e: CancellationException) {
+                        throw e // stop generation: partial saved below
+                    } catch (e: Exception) {
+                        // Streaming failed (network/endpoint hiccup) — retry once without streaming.
+                        aiClient.generateChatResponse(provider, apiKey, model, systemPrompt, currentMsgs, userText).content
+                    }
+                } else {
+                    aiClient.generateChatResponse(provider, apiKey, model, systemPrompt, currentMsgs, userText).content
+                }
+                persistAssistantMessage(chatId, provider, model, content)
+            } catch (e: CancellationException) {
+                val partial = streamed.toString()
+                if (partial.isNotBlank()) withContext(NonCancellable) { persistAssistantMessage(chatId, provider, model, partial) }
             } catch (e: Exception) { _notification.emit(UiNotification("Generation error: ${e.localizedMessage}", true)) }
-            finally { _isGenerating.value = false }
+            finally {
+                _isGenerating.value = false
+                _streamingContent.value = ""
+                generationJob = null
+            }
         }
+    }
+
+    private suspend fun persistAssistantMessage(chatId: Long, provider: AiProvider, model: String, content: String) {
+        chatDao.insertMessage(
+            MessageEntity(
+                chatId = chatId,
+                role = "assistant",
+                content = content,
+                providerName = provider.displayName,
+                modelUsed = model,
+                hasCodeBlock = content.contains("```")
+            )
+        )
+    }
+
+    /** Cancels an in-flight generation, keeping any partial streamed text. */
+    fun stopGeneration() {
+        generationJob?.cancel()
     }
     fun deleteMessage(msg: MessageEntity) { viewModelScope.launch { chatDao.deleteMessage(msg) } }
 
